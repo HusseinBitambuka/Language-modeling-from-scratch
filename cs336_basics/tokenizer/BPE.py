@@ -1,124 +1,118 @@
 from collections import defaultdict
 import regex as re
+import heapq
 import pickle
 
 class BPE:
     def __init__(self, vocab_size: int, special_tokens: list[str]) -> None:
-        """
-        Initialize BPE tokenizer with target vocab size and special tokens.
-        """
         self.vocab_size = vocab_size
         self.special_tokens = special_tokens
-
-        # GPT-2 style pretokenization regex
         self.PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
-        # Byte-level vocab: start with {0..255}
-        self.vocab: dict[int, bytes] = {i: bytes([i]) for i in range(256)}
-        self.merge_sets: dict[int, tuple[int, int]] = {}
-
-        # Special tokens
-        self.special_token_to_id: dict[str, int] = {}
+        
+        self.vocab = {i: bytes([i]) for i in range(256)}
+        self.merge_sets = {}
+        self.special_token_to_id = {}
+        
         for i, token in enumerate(special_tokens):
             token_id = 256 + i
             self.vocab[token_id] = token.encode("utf-8")
             self.special_token_to_id[token] = token_id
 
-        # Track next available token ID
         self.next_token_id = 256 + len(special_tokens)
-
-        # Frequency of each byte-sequence pretoken (as tuples of ints)
-        self.pretoken_table_count: dict[tuple[int, ...], int] = defaultdict(int)
+        self.pretoken_table_count = defaultdict(int)
 
     def add_chunk_to_pre_token_table(self, text_chunk: str) -> None:
-        """
-        Accepts a chunk of raw text and updates the pre-token frequency table.
-        """
         for pre_token in re.findall(self.PAT, text_chunk):
             if pre_token in self.special_token_to_id:
                 continue
             token_bytes = tuple(pre_token.encode("utf-8"))
             self.pretoken_table_count[token_bytes] += 1
 
-    def get_token_freq_pairs(self) -> tuple[dict[tuple[int, int], int], dict[tuple[int, int], list[tuple[int, ...]]]]:
-        """
-        Compute frequency of each adjacent byte pair across all pre-token sequences.
-        """
-        token_pairs = defaultdict(int)
-        index_table = defaultdict(list)
+    def merge(self):
+        pair_freq = defaultdict(int)
+        pair_to_pretokens = defaultdict(set)
 
         for pretoken, freq in self.pretoken_table_count.items():
-            for token1, token2 in zip(pretoken, pretoken[1:]):
-                token_pairs[(token1, token2)] += freq
-                index_table[(token1, token2)].append(pretoken)
+            for a, b in zip(pretoken, pretoken[1:]):
+                pair = (a, b)
+                pair_freq[pair] += freq
+                pair_to_pretokens[pair].add(pretoken)
 
-        return token_pairs, index_table
+        heap = [(-count, pair) for pair, count in pair_freq.items()]
+        heapq.heapify(heap)
 
-    def update_pre_token_table(self, most_frequent: tuple[int, int], pretokens_appeared: list[tuple[int, ...]]) -> None:
-        """
-        Applies the most frequent merge rule to all matching pre-token sequences.
-        """
-        token1, token2 = most_frequent
-        new_token_id = self.next_token_id
-        self.next_token_id += 1
+        while len(self.vocab) < self.vocab_size and heap:
+            _, most_frequent = heapq.heappop(heap)
+            if most_frequent not in pair_freq:
+                continue  # stale entry
 
-        new_token_bytes = self.vocab[token1] + self.vocab[token2]
-        self.vocab[new_token_id] = new_token_bytes
-        self.merge_sets[new_token_id] = (token1, token2)
+            token1, token2 = most_frequent
+            new_token_id = self.next_token_id
+            self.next_token_id += 1
 
-        for pretoken in pretokens_appeared:
-            freq = self.pretoken_table_count[pretoken]
-            new_pre_token = []
-            i = 0
-            while i < len(pretoken):
-                if i < len(pretoken) - 1 and pretoken[i] == token1 and pretoken[i + 1] == token2:
-                    new_pre_token.append(new_token_id)
-                    i += 2
-                else:
-                    new_pre_token.append(pretoken[i])
-                    i += 1
-            del self.pretoken_table_count[pretoken]
-            self.pretoken_table_count[tuple(new_pre_token)] += freq
+            new_token_bytes = self.vocab[token1] + self.vocab[token2]
+            self.vocab[new_token_id] = new_token_bytes
+            self.merge_sets[new_token_id] = (token1, token2)
 
-    def merge(self) -> None:
-        """
-        Train the BPE tokenizer by merging the most frequent token pairs.
-        """
-        while len(self.vocab) < self.vocab_size:
-            pair_freq, pair_index = self.get_token_freq_pairs()
-            if not pair_freq:
-                break
-            most_frequent = max(pair_freq.items(), key=lambda x: x[1])[0]
-            pretokens_appeared = pair_index[most_frequent]
-            self.update_pre_token_table(most_frequent, pretokens_appeared)
+            affected_pretokens = pair_to_pretokens.pop(most_frequent)
+            new_table_updates = defaultdict(int)
+            to_decrement = defaultdict(int)
+            to_increment = defaultdict(int)
+
+            for pretoken in affected_pretokens:
+                freq = self.pretoken_table_count[pretoken]
+                new_pre = []
+                i = 0
+                while i < len(pretoken):
+                    if i < len(pretoken) - 1 and pretoken[i] == token1 and pretoken[i + 1] == token2:
+                        new_pre.append(new_token_id)
+                        i += 2
+                    else:
+                        new_pre.append(pretoken[i])
+                        i += 1
+
+                for a, b in zip(pretoken, pretoken[1:]):
+                    to_decrement[(a, b)] += freq
+                    pair_to_pretokens[(a, b)].discard(pretoken)
+
+                new_pre_tuple = tuple(new_pre)
+                new_table_updates[new_pre_tuple] += freq
+
+                for a, b in zip(new_pre, new_pre[1:]):
+                    to_increment[(a, b)] += freq
+                    pair_to_pretokens[(a, b)].add(new_pre_tuple)
+
+                del self.pretoken_table_count[pretoken]
+
+            for pair, count in to_decrement.items():
+                pair_freq[pair] -= count
+                if pair_freq[pair] <= 0:
+                    del pair_freq[pair]
+
+            for pair, count in to_increment.items():
+                pair_freq[pair] += count
+                heapq.heappush(heap, (-pair_freq[pair], pair))
+
+            self.pretoken_table_count.update(new_table_updates)
 
     def apply_merges(self, byte_sequence: list[int]) -> list[int]:
-        """
-        Applies learned merges to a sequence of byte-level token IDs.
-        """
-        merges = sorted(self.merge_sets.items())  # Sort by merge order (token ID)
-
+        merges = sorted(self.merge_sets.items())  # sort by token id (merge order)
         for token_id, (a, b) in merges:
             i = 0
-            new_sequence = []
+            new_seq = []
             while i < len(byte_sequence):
                 if i < len(byte_sequence) - 1 and byte_sequence[i] == a and byte_sequence[i + 1] == b:
-                    new_sequence.append(token_id)
+                    new_seq.append(token_id)
                     i += 2
                 else:
-                    new_sequence.append(byte_sequence[i])
+                    new_seq.append(byte_sequence[i])
                     i += 1
-            byte_sequence = new_sequence
-
+            byte_sequence = new_seq
         return byte_sequence
 
     def encode(self, text: str) -> list[int]:
-        """
-        Encode a new text string using the trained tokenizer.
-        """
         pre_tokens = re.findall(self.PAT, text)
         encoded_tokens = []
-
         for token in pre_tokens:
             if token in self.special_token_to_id:
                 encoded_tokens.append(self.special_token_to_id[token])
@@ -126,28 +120,18 @@ class BPE:
                 byte_sequence = list(token.encode("utf-8"))
                 byte_sequence = self.apply_merges(byte_sequence)
                 encoded_tokens.extend(byte_sequence)
-
         return encoded_tokens
 
     def decode(self, tokens: list[int]) -> str:
-        """
-        Decode a sequence of token IDs into a UTF-8 string.
-        """
         byte_stream = b''.join(self.vocab.get(token, b'') for token in tokens)
         return byte_stream.decode("utf-8", errors="replace")
 
     def print_vocab(self):
-        """
-        Print the full vocabulary.
-        """
         print("Vocabulary:")
         for tid in sorted(self.vocab.keys()):
             print(f"{tid}: {self.vocab[tid]}")
 
     def print_merges(self):
-        """
-        Print all applied BPE merges.
-        """
         print("Merge rules:")
         for tid, pair in sorted(self.merge_sets.items()):
             print(f"{tid}: {pair}")
@@ -166,7 +150,6 @@ class BPE:
     def load(cls, path: str) -> "BPE":
         with open(path, "rb") as f:
             state = pickle.load(f)
-        
         bpe = cls(
             vocab_size=state["vocab_size"],
             special_tokens=state["special_tokens"]
