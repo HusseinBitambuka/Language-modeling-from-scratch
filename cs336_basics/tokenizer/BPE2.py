@@ -12,7 +12,7 @@ class BPE:
         self.vocab:dict[int, bytes] = {i: bytes([i]) for i in range(256)}
         self.merge_sets:dict[int, tuple[int, int]] = {}
         self.special_token_to_id:dict[str, int] = {}
-        self.byte_cache:dict[str, tuple[bytes]] = {}
+        self.byte_cache:dict[str, tuple[int,...]] ={}
         
         for i, token in enumerate(special_tokens):
             token_id = 256 + i
@@ -20,15 +20,18 @@ class BPE:
             self.special_token_to_id[token] = token_id
 
         self.next_token_id = 256 + len(special_tokens)
-        self.pretoken_table_count:dict[tuple[bytes], int] = defaultdict(int)
+        self.pretoken_table_count:dict[tuple[int, ...], int] = defaultdict(int)
 
-    def add_chunk_to_pre_token_table(self, text_chunk: str) -> None:
+    def add_chunk_to_pre_token_table(self, text_chunk: str):
+        
         for pre_token in re.findall(self.PAT, text_chunk):
             if pre_token in self.special_token_to_id:
                 continue
-            if pre_token not in self.byte_cache:
-                self.byte_cache[pre_token] = tuple(pre_token.encode("utf-8"))
-            self.pretoken_table_count[self.byte_cache[pre_token]] += 1
+            cached = self.byte_cache.get(pre_token)
+            if cached is None:
+                cached = tuple(pre_token.encode("utf-8"))
+                self.byte_cache[pre_token] = cached
+            self.pretoken_table_count[cached] += 1
 
     def merge(self):
         pair_freq = defaultdict(int)
