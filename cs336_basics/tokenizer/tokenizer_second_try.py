@@ -5,7 +5,7 @@ from BPE2 import BPE
 from file_processing import find_chunk_boundaries
 
 def train_tokenizer():
-    file_path = "/home/husseinbitambuka/Dev/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt"
+    file_path = "/home/husseinbitambuka/Dev/assignment1-basics/data/owt_train.txt"
     vocab_size = 10000
     special_tokens = ["<|endoftext|>"]
     split_token = "<|endoftext|>".encode("utf-8")
@@ -38,8 +38,8 @@ def train_tokenizer():
     print(f"Merge operations: {len(bpe.merge_sets)}")
 
     # Step 6: Save tokenizer
-    bpe.save("tokenizer_TinyStoriesV2-GPT4-train.pkl")
-    print("Tokenizer saved to tokenizer_TinyStoriesV2-GPT4-train.pkl")
+    bpe.save("owt_train.txt.pkl")
+    print("Tokenizer saved to tokenizer_owt_train.txt.pkl")
 
 def profile_run():
     profile_path = "bpe_profile.prof"

@@ -37,7 +37,7 @@ class BPE:
                 pair = (a, b)
                 pair_freq[pair] += freq
                 pair_to_pretokens[pair].add(pretoken)
-
+ 
         heap = [(-count, pair) for pair, count in pair_freq.items()]
         heapq.heapify(heap)
 
