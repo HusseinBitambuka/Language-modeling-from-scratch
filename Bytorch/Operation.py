@@ -9,7 +9,7 @@ class Operation:
     -Define a local backward rule
 
     """
-    def ___init__(self, *inputs):
+    def __init__(self, *inputs):
         self.inputs = inputs
         self.saved_tensors = ()
 
@@ -25,11 +25,11 @@ class Operation:
         Performs forward computation.
         Must be implemented by subclasses.
         """
-        raise NotImplemented
+        raise NotImplementedError
     def backward(self, grad_out):
         """
         Given gradient w.r.t. output, return gradients w.r.t. inputs.
         
         Must return a tuple of gradients aligned with self.inputs.
         """
-        raise NotImplemented
+        raise NotImplementedError
