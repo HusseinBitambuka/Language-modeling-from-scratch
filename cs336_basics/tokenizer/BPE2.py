@@ -23,7 +23,7 @@ class BPE:
         self.pretoken_table_count:dict[tuple[int, ...], int] = defaultdict(int)
 
     def add_chunk_to_pre_token_table(self, text_chunk: str):
-        
+         
         for pre_token in re.findall(self.PAT, text_chunk):
             if pre_token in self.special_token_to_id:
                 continue
