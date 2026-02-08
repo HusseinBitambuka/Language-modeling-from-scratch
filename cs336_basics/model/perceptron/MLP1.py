@@ -1,10 +1,3 @@
-from cs336_basics.tokenizer import BPE2
-import numpy as np
-import time
-from torch import embedding
-
-
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -62,6 +55,9 @@ class MLPLanguageModel(nn.Module):
         logits = self.fc_out(x)
 
         return logits
+    
+
+
     
 
 
