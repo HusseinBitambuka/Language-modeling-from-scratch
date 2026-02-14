@@ -5,7 +5,7 @@ import math
 
 class Linear(nn.Module):
 
-    def __init__(self, in_features:int, out_features:int, device=None, dtype=None) ->None:
+    def __init__(self, in_features:int, out_features:int, device:torch.device|None=None, dtype:torch.dtype|None=None) ->None:
         """
         linear transformation module. This function should accept the following parameters:
 
